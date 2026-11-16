@@ -1,13 +1,19 @@
 """Small authentication module used for the DevOps TP N°3."""
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 import time
 from typing import Any
 
 MAX_ATTEMPTS = 3
 LOCKOUT_SECONDS = 300
+_PBKDF2_ITERATIONS = 600_000
+_SALT_BYTES = 16
+_HASH_ALGORITHM = "sha256"
 
-# username -> stored password value
+# username -> stored password hash
 users: dict[str, str] = {}
 
 # username -> number of consecutive failed attempts
@@ -32,12 +38,35 @@ def _valid_password(password: Any) -> bool:
 
 
 def _hash_password(password: str) -> str:
-    """Prepare the password for storage (simplified version)."""
-    return password
+    """Hash a password with PBKDF2-HMAC-SHA256 and a unique random salt."""
+    salt = secrets.token_bytes(_SALT_BYTES)
+    derived_key = hashlib.pbkdf2_hmac(
+        _HASH_ALGORITHM,
+        password.encode("utf-8"),
+        salt,
+        _PBKDF2_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt.hex()}${derived_key.hex()}"
 
 
 def _verify_password(password: str, encoded_hash: str) -> bool:
-    return password == encoded_hash
+    """Verify a password against the encoded PBKDF2 hash."""
+    try:
+        algorithm, iterations_text, salt_hex, expected_hex = encoded_hash.split("$", 3)
+        iterations = int(iterations_text)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(expected_hex)
+        if algorithm != "pbkdf2_sha256" or iterations <= 0 or not salt or not expected:
+            return False
+        actual = hashlib.pbkdf2_hmac(
+            _HASH_ALGORITHM,
+            password.encode("utf-8"),
+            salt,
+            iterations,
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return hmac.compare_digest(actual, expected)
 
 
 def register_user(username: Any, password: Any) -> bool:
@@ -55,7 +84,7 @@ def register_user(username: Any, password: Any) -> bool:
 
 def authenticate(username: Any, password: Any) -> dict[str, Any]:
     """Authenticate a user and return a result dictionary."""
-    # Reject malformed input.
+    # Reject malformed input without raising exceptions.
     if not _valid_username(username) or not isinstance(password, str):
         return {"success": False, "message": GENERIC_ERROR}
 
@@ -64,11 +93,11 @@ def authenticate(username: Any, password: Any) -> dict[str, Any]:
         return {"success": False, "message": GENERIC_ERROR}
 
     encoded_hash = users.get(username)
-
     if encoded_hash is None:
-        return {"success": False, "message": "Utilisateur inconnu"}
+        # Do not reveal whether the username exists.
+        return {"success": False, "message": GENERIC_ERROR}
 
-    if not _verify_password(password, encoded_hash):
+    if not _valid_password(password) or not _verify_password(password, encoded_hash):
         _record_failure(username, now)
         return {"success": False, "message": GENERIC_ERROR}
 
@@ -79,7 +108,7 @@ def authenticate(username: Any, password: Any) -> dict[str, Any]:
 
 def _record_failure(username: str, now: float) -> None:
     attempts[username] = attempts.get(username, 0) + 1
-    if attempts[username] > MAX_ATTEMPTS:
+    if attempts[username] >= MAX_ATTEMPTS:
         blocked_until[username] = now + LOCKOUT_SECONDS
 
 
