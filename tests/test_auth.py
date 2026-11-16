@@ -50,6 +50,23 @@ def test_password_is_not_stored_in_plain_text():
     assert auth.users["charlie"].startswith("pbkdf2_sha256$")
 
 
+def test_same_password_is_stored_with_unique_salts():
+    password = "SharedPassword123!"
+    assert auth.register_user("charlie", password) is True
+    assert auth.register_user("david", password) is True
+
+    assert auth.users["charlie"] != auth.users["david"]
+
+
+def test_registered_user_can_authenticate():
+    password = "NewPassword123!"
+    assert auth.register_user("charlie", password) is True
+
+    result = auth.authenticate("charlie", password)
+
+    assert result["success"] is True
+
+
 def test_duplicate_username_is_rejected():
     assert auth.register_user("alice", "AnotherPassword123!") is False
 

@@ -3,6 +3,10 @@
 Projet de départ du TP. Il contient un petit module d'authentification en
 Python, des tests Pytest et un pipeline GitHub Actions.
 
+Les mots de passe sont stockés sous forme de hachages PBKDF2-HMAC-SHA256 avec
+un sel aléatoire par utilisateur. Les tests couvrent notamment l'authentification,
+le verrouillage après plusieurs échecs et l'unicité des sels.
+
 ## Arborescence
 
 ```text
